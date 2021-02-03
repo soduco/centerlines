@@ -1,10 +1,9 @@
 package org.geohistoricaldata
 
 import java.io.{File => JFile}
-
 import org.jgrapht.graph.{DefaultEdge, DefaultUndirectedGraph}
 import org.locationtech.jts.densify.Densifier
-import org.locationtech.jts.geom.{Coordinate, GeometryCollection, GeometryFactory, LineString, LinearRing, MultiPolygon, Polygon}
+import org.locationtech.jts.geom.{Coordinate, GeometryCollection, GeometryFactory, LineString, LinearRing, MultiPolygon, Polygon, PrecisionModel}
 import org.locationtech.jts.operation.linemerge.LineMerger
 import org.locationtech.jts.operation.overlay.snap.GeometrySnapper
 import org.locationtech.jts.operation.polygonize.Polygonizer
@@ -16,7 +15,7 @@ import scala.jdk.CollectionConverters._
 
 object CenterLinesBuilder {
   def apply(input: JFile, outputLines: JFile, outputPolygons: JFile, densifyParameter: Double, simplifyTolerance: Double, tolerance: Double, transformResult: Boolean) {
-    val factory = new GeometryFactory()
+    val factory = new GeometryFactory(new PrecisionModel(100))
     // read the input polygons. Use DN = 255 to identify edges
     val features = Utils.getShapefile(input.toPath).map(f => f.getID -> (f.getDefaultGeometry.asInstanceOf[MultiPolygon].getGeometryN(0).asInstanceOf[Polygon], f.getAttribute("DN").toString.equals("255"))).toMap
     // build the union to get the (segmented) contour
@@ -37,14 +36,16 @@ object CenterLinesBuilder {
         sharedCoordinates(id) :+ factory.createMultiPointFromCoords(coordinatesOnContour).getCentroid.getCoordinate
       }
       if (array.length == 4) { //that is a rectangle
-        if (exteriorCoordinates.length == 2) id -> Array(factory.createLineString(exteriorCoordinates)) // 2 'exterior' coords, no brainer
-        else {
+//        if (exteriorCoordinates.length == 2) id -> Array(factory.createLineString(exteriorCoordinates)) // 2 'exterior' coords, no brainer
+//        else {
           // more than one exterior coord, create a star like shape
           // FIXME should check if we can have less than 2 ext coords
           val centroid = factory.createMultiPointFromCoords(array).getCentroid.getCoordinate
           id -> exteriorCoordinates.map(e => factory.createLineString(Array(centroid, e)))
-        }
-      } else id -> getVoronoiGraph(id, exteriorCoordinates)
+//        }
+      } else {
+        id -> getVoronoiGraph(id, exteriorCoordinates)
+      }
     }
 
     /**
@@ -61,6 +62,7 @@ object CenterLinesBuilder {
       val vdb = new VoronoiDiagramBuilder()
       vdb.setTolerance(tolerance)
       vdb.setSites(densifiedGeom)
+      vdb.setClipEnvelope(geom.getEnvelopeInternal)
       val diagram = vdb.getDiagram(factory).asInstanceOf[GeometryCollection]
       // extract the contours of the voronoi cells and keep only those inside the current feature
       val lines = (0 until diagram.getNumGeometries).flatMap { i =>

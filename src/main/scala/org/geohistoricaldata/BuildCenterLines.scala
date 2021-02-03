@@ -8,7 +8,7 @@ case class Config(
                    in: JFile = new JFile("."),
                    outLines: JFile = new JFile("."),
                    outPolygons: JFile = new JFile("."),
-                   densifyParameter: Double = 0.5,
+                   densifyParameter: Double = 0.25,
                    simplifyTolerance: Double = 1.0,
                    tolerance: Double = 0.01,
                    transform: Boolean = false
@@ -55,7 +55,7 @@ object BuildCenterLines extends App {
         .optional()
         .action((x, c) => c.copy(simplifyTolerance = x))
         .validate(x =>
-          if (x > 0) success
+          if (x >= 0) success
           else failure("Value <simplifyTolerance> must be > 0"))
         .text("simplifyTolerance is a double property used to simplify the extracted centerlines. It corresponds to the distance tolerance of the Douglas-Peucker algorithm."),
       opt[Double]('t', "tolerance")
