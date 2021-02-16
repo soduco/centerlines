@@ -8,7 +8,7 @@ case class Config(
                    in: JFile = new JFile("."),
                    outLines: JFile = new JFile("."),
                    outPolygons: JFile = new JFile("."),
-                   densifyParameter: Double = 0.25,
+                   densifyParameter: Double = 0.5,
                    simplifyTolerance: Double = 1.0,
                    tolerance: Double = 0.01,
                    transform: Boolean = false
@@ -48,7 +48,7 @@ object BuildCenterLines extends App {
         .optional()
         .action((x, c) => c.copy(densifyParameter = x))
         .validate(x =>
-          if ((x > 0) && (x < 1)) success
+          if ((x > 0) && (x <= 1)) success
           else failure("Value <densifyParameter> must be > 0 and < 1"))
         .text("densifyParameter is a double property used to densify the input geometries at the voronoi diagram step. It corresponds to the max distance between consecutive points on the geometry"),
       opt[Double]('s', "simplifyTolerance")
