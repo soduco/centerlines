@@ -32,14 +32,15 @@ object ImagePolygonizer {
       val loader = ImmutableImage.loader()
       val borders = ArrayBuffer[Polygon]()
       val lines = ArrayBuffer[LineString]()
-      val segments = ArrayBuffer[LineString]()
-      val coordinates = ArrayBuffer[Coordinate]()
+//      val segments = ArrayBuffer[LineString]()
+//      val coordinates = ArrayBuffer[Coordinate]()
       val sharedBorderCoordinates = ArrayBuffer[Coordinate]()
-      val connectingCoordinates = ArrayBuffer[Coordinate]()
+//      val connectingCoordinates = ArrayBuffer[Coordinate]()
       for {
         x <- 0 until xTiles
         y <- 0 until yTiles
       } {
+        println(s"Tile ($x x $y)")
         val (xx, yy) = (x * tileSize, y * tileSize)
         val tile = loader.sourceRegion(new Rectangle(xx, yy, tileSize, tileSize)).fromFile(imageFile)
         val array = ArrayBuffer[Polygon]()
@@ -58,21 +59,22 @@ object ImagePolygonizer {
         borders ++= border.toArray.map(_.asInstanceOf[Polygon])
         val (c0, c1, c2, c3) = (new Coordinate(xx, yy), new Coordinate(xx, yy + tileSize), new Coordinate(xx + tileSize, yy + tileSize), new Coordinate(xx + tileSize, yy))
         val sharedBCoordinates = CenterLinesBuilder.getSharedCoordinates(inside.toArray, border.toArray)
-        val (edges, theSegments, points) = CenterLinesBuilder.getLinesFromPolygons(inside.toArray, factory.createPolygon(Array(c0, c1, c2, c3, c0)), sharedBCoordinates, densifyParameter, simplifyTolerance, tolerance)
+        val edges /*(edges, theSegments, points)*/ = CenterLinesBuilder.getLinesFromPolygons(inside.toArray, factory.createPolygon(Array(c0, c1, c2, c3, c0)), sharedBCoordinates, densifyParameter, simplifyTolerance, tolerance)
         lines ++= edges
-        segments ++= theSegments
-        coordinates ++= points
+//        segments ++= theSegments
+//        coordinates ++= points
         sharedBorderCoordinates ++= sharedBCoordinates
-        connectingCoordinates ++= CenterLinesBuilder.getConnectingCoordinates(inside.toArray)
+//        connectingCoordinates ++= CenterLinesBuilder.getConnectingCoordinates(inside.toArray)
       }
       val (c0, c1, c2, c3) = (new Coordinate(0, 0), new Coordinate(0, imageHeight), new Coordinate(imageWidth, imageHeight), new Coordinate(imageWidth, 0))
       val imageContour = factory.createPolygon(Array(c0, c1, c2, c3, c0))
       val union = factory.createGeometryCollection(borders.toArray).union()
       val borderUnion = (0 until union.getNumGeometries).toArray.map(i => union.getGeometryN(i).asInstanceOf[Polygon])
-      val (edges, theSegments, points) = CenterLinesBuilder.getLinesFromPolygons(borderUnion, imageContour, sharedBorderCoordinates.toArray, densifyParameter, simplifyTolerance, tolerance)
+      println(s"Handling ${borderUnion.length} border polygons")
+      val edges /*(edges, theSegments, points)*/ = CenterLinesBuilder.getLinesFromPolygons(borderUnion, imageContour, sharedBorderCoordinates.toArray, densifyParameter, simplifyTolerance, tolerance)
       lines ++= edges
-      segments ++= theSegments
-      coordinates ++= points
+//      segments ++= theSegments
+//      coordinates ++= points
       val exteriorRing = imageContour.getExteriorRing
       val exteriorConnectedCoordinates = lines.flatMap(_.getCoordinates.toSeq).filter(c => factory.createPoint(c).distance(exteriorRing) < tolerance)
       // make sure the exterior ring contains the coords we have created (avoid potential precision problems with JTS)
@@ -88,7 +90,7 @@ object ImagePolygonizer {
         map(l => if (simplifyTolerance.isDefined) DouglasPeuckerSimplifier.simplify(l, simplifyTolerance.get) else l).
         map(_.asInstanceOf[LineString])
       val filtered = result.map(l => if (l.getCoordinateN(0).compareTo(l.getCoordinateN(1)) > 0) l else l.reverse()).toArray.distinct
-      (filtered, segments.toArray, coordinates.toArray, connectingCoordinates, imageWidth, imageHeight)
+      (filtered, /*segments.toArray, coordinates.toArray, connectingCoordinates,*/ imageWidth, imageHeight)
     }
 
     println(Calendar.getInstance().getTime)
@@ -96,13 +98,14 @@ object ImagePolygonizer {
 //    //  val input = "data/BHdV_PL_ATL20Ardt_1926_0004"
 //    val densify = None
 //    val simplify = None
-    val (lines, segments, coordinates, sharedCoordinates, imageWidth, imageHeight) = getLines(imageFile, tileSize = tileSize, threshold, densifyParameter, simplifyTolerance, tolerance)
+    val (lines, /*segments, coordinates, sharedCoordinates,*/ imageWidth, imageHeight) = getLines(imageFile, tileSize = tileSize, threshold, densifyParameter, simplifyTolerance, tolerance)
 //    val outputLines = input + s"_lines_$densify.shp"
 //    val outputSegments = input + s"_segments_$densify.shp"
 //    val outputPolygons = input + s"_polygons_$densify.shp"
 //    val outputPoints = input + s"_points_$densify.shp"
 //    val outputSharedPoints = input + s"_shared_points_$densify.shp"
 //    val transformResult = true
+    println("Creating the polygons now")
     val polygons = CenterLinesBuilder.getPolygonsFromLines(lines, factory)
 
     def transform(coordinate: Coordinate) = new Coordinate(coordinate.x, -coordinate.y)

@@ -21,7 +21,8 @@ object CenterLinesBuilder {
    * @param exteriorCoordinates the exterior coordinates of the cell
    * @return the (filtered) edges of the voronoi diagram for the cell
    */
-  def getVoronoiGraph(geom: Polygon, exteriorCoordinates: Array[Coordinate], factory: GeometryFactory, densifyParameter: Option[Double], tolerance: Double): (Array[LineString], Array[LineString], Array[Coordinate])= {
+  def getVoronoiGraph(geom: Polygon, exteriorCoordinates: Array[Coordinate], factory: GeometryFactory, densifyParameter: Option[Double], tolerance: Double):
+    Array[LineString] /*(Array[LineString], Array[LineString], Array[Coordinate])*/ = {
     // densify the coordinates for the edges of the voronoi diagram to be smoother (better approximation)
     val densifiedGeom = if (densifyParameter.isDefined) Densifier.densify(geom, densifyParameter.get) else geom
     // build a voronoi diagram
@@ -85,7 +86,8 @@ object CenterLinesBuilder {
     removeDangling(true, None, exteriorCoordinates ++ graph.vertexSet().asScala.filter(v => graph.edgesOf(v).size() > 2))
     // remove simple vertices again
     //mergeEdges()
-    (graph.edgeSet().asScala.map(_.line).toArray, allLines.map(_.asInstanceOf[LineString]), geom.getCoordinates)
+//    (graph.edgeSet().asScala.map(_.line).toArray, allLines.map(_.asInstanceOf[LineString]), geom.getCoordinates)
+    graph.edgeSet().asScala.map(_.line).toArray
   }
 
   def getSharedCoordinates(p1: Array[Polygon], p2: Array[Polygon]) = {
@@ -126,7 +128,8 @@ object CenterLinesBuilder {
       // create the middle point for each group of segment
       (if (acc._2.nonEmpty) acc._1 :+ acc._2 else acc._1).map(l=>factory.createLineString(l.flatMap(x=>Array(x._2, x._3)).distinct)).map(l=>new LengthIndexedLine(l).extractPoint(l.getLength / 2))
     }
-    def getLine(geom: Polygon, array: Array[Coordinate], sharedCoordinates: Array[Coordinate]): (Array[LineString], Array[LineString], Array[Coordinate]) = {
+    def getLine(geom: Polygon, array: Array[Coordinate], sharedCoordinates: Array[Coordinate]):
+      Array[LineString]/*(Array[LineString], Array[LineString], Array[Coordinate])*/ = {
       // check if part of the coordinates are on the contour of the dataset
       val coordinatesOnContour = array.filter(onContour)
       // Get the exterior coordinates for the cell id with coordinates array
@@ -138,16 +141,16 @@ object CenterLinesBuilder {
       if (array.length == 4) { //that is a rectangle
         val centroid = factory.createMultiPointFromCoords(array).getCentroid.getCoordinate
         val lines = exteriorCoordinates.map(e => factory.createLineString(Array(centroid, e)))
-        (lines, lines, array)
+        lines//(lines, lines, array)
       } else {
         getVoronoiGraph(geom, exteriorCoordinates, factory, densifyParameter, tolerance)
       }
     }
 
-    val (lines, segments, points) = polygons.zipWithIndex.map{case (elem, i) =>
+    val lines /*(lines, segments, points)*/ = polygons.zipWithIndex.map{case (elem, i) =>
 //      println(s"\tElement $i / ${polygons.size}")
       getLine(elem, coordinates(i), sharedCoordinates(i))
-    }.unzip3
+    }//.unzip3
 //    val exteriorRing = contour.asInstanceOf[Polygon].getExteriorRing
 //    val exteriorConnectedCoordinates = lines.flatMap(_.flatMap(_.getCoordinates).toSeq).filter(c => factory.createPoint(c).distance(exteriorRing) < tolerance)
     // make sure the exterior ring contains the coords we have created (avoid potential precision problems with JTS)
@@ -162,7 +165,7 @@ object CenterLinesBuilder {
       map(_.asInstanceOf[LineString]).
       map(l => if (simplifyTolerance.isDefined) DouglasPeuckerSimplifier.simplify(l, simplifyTolerance.get) else l).
       map(_.asInstanceOf[LineString])
-    (simplified.toArray, segments.flatten, points.flatten)
+    simplified.toArray//(simplified.toArray, segments.flatten, points.flatten)
   }
   def getPolygonsFromLines(lines: Array[LineString], factory: GeometryFactory) = {
     // polygonize the edges
