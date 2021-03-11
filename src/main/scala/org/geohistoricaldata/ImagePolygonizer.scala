@@ -36,13 +36,18 @@ object ImagePolygonizer {
 //      val coordinates = ArrayBuffer[Coordinate]()
       val sharedBorderCoordinates = ArrayBuffer[Coordinate]()
 //      val connectingCoordinates = ArrayBuffer[Coordinate]()
+      var tLoad: Long = 0
+      var tUnion: Long = 0
+      var tLine: Long = 0
       for {
         x <- 0 until xTiles
         y <- 0 until yTiles
       } {
         println(s"Tile ($x x $y)")
         val (xx, yy) = (x * tileSize, y * tileSize)
+        val startLoad = System.currentTimeMillis()
         val tile = loader.sourceRegion(new Rectangle(xx, yy, tileSize, tileSize)).fromFile(imageFile)
+        val endLoad = System.currentTimeMillis()
         val array = ArrayBuffer[Polygon]()
         tile.forEach { pixel =>
           if (pixel.average() > threshold) {
@@ -52,6 +57,7 @@ object ImagePolygonizer {
           }
         }
         val res = factory.createGeometryCollection(array.toArray).union()
+        val endUnion = System.currentTimeMillis()
         // separate the polygons inside the tile from the ones shared between tiles
         val (border, inside) = (0 until res.getNumGeometries).map(i => res.getGeometryN(i).asInstanceOf[Polygon]).partition {
           _.getCoordinates.exists(c => (c.x.toInt == xx) || (c.x.toInt == xx + tileSize) || (c.y.toInt == yy) || (c.y.toInt == yy + tileSize))
@@ -60,18 +66,28 @@ object ImagePolygonizer {
         val (c0, c1, c2, c3) = (new Coordinate(xx, yy), new Coordinate(xx, yy + tileSize), new Coordinate(xx + tileSize, yy + tileSize), new Coordinate(xx + tileSize, yy))
         val sharedBCoordinates = CenterLinesBuilder.getSharedCoordinates(inside.toArray, border.toArray)
         val edges /*(edges, theSegments, points)*/ = CenterLinesBuilder.getLinesFromPolygons(inside.toArray, factory.createPolygon(Array(c0, c1, c2, c3, c0)), sharedBCoordinates, densifyParameter, simplifyTolerance, tolerance)
+        val endLines = System.currentTimeMillis()
         lines ++= edges
 //        segments ++= theSegments
 //        coordinates ++= points
         sharedBorderCoordinates ++= sharedBCoordinates
 //        connectingCoordinates ++= CenterLinesBuilder.getConnectingCoordinates(inside.toArray)
+        tLoad += (endLoad - startLoad)
+        tUnion += (endUnion - endLoad)
+        tLine += (endLines - endUnion)
+        println(s"Times are ${endLoad-startLoad} loading - ${endUnion - endLoad} union - ${endLines - endUnion} lines")
       }
+      println(s"Final Times are ${tLoad} loading - ${tUnion} union - ${tLine} lines")
+      val startBorder = System.currentTimeMillis()
       val (c0, c1, c2, c3) = (new Coordinate(0, 0), new Coordinate(0, imageHeight), new Coordinate(imageWidth, imageHeight), new Coordinate(imageWidth, 0))
       val imageContour = factory.createPolygon(Array(c0, c1, c2, c3, c0))
       val union = factory.createGeometryCollection(borders.toArray).union()
       val borderUnion = (0 until union.getNumGeometries).toArray.map(i => union.getGeometryN(i).asInstanceOf[Polygon])
-      println(s"Handling ${borderUnion.length} border polygons")
+      val endBorder = System.currentTimeMillis()
+      println(s"Handling ${borderUnion.length} border polygons (built in ${endBorder - startBorder} ms)")
       val edges /*(edges, theSegments, points)*/ = CenterLinesBuilder.getLinesFromPolygons(borderUnion, imageContour, sharedBorderCoordinates.toArray, densifyParameter, simplifyTolerance, tolerance)
+      val endLines = System.currentTimeMillis()
+      println(s"Lines in ${endLines - endBorder} ms")
       lines ++= edges
 //      segments ++= theSegments
 //      coordinates ++= points

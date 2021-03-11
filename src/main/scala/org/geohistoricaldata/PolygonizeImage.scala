@@ -7,7 +7,7 @@ case class PolygonizeImageConfig(
                    in: JFile = new JFile("."),
                    outLines: JFile = new JFile("."),
                    outPolygons: JFile = new JFile("."),
-                   tileSize: Int = 512,
+                   tileSize: Int = 1024,
                    threshold: Int = 200,
                    densifyParameter: Option[Double] = None,
                    simplifyTolerance: Option[Double] = None,

@@ -1,6 +1,7 @@
 package org.geohistoricaldata
 
 import org.jgrapht.graph.{DefaultEdge, DefaultUndirectedGraph}
+import org.locationtech.jts.algorithm.locate.IndexedPointInAreaLocator
 import org.locationtech.jts.densify.Densifier
 import org.locationtech.jts.geom._
 import org.locationtech.jts.linearref.LengthIndexedLine
@@ -23,6 +24,7 @@ object CenterLinesBuilder {
    */
   def getVoronoiGraph(geom: Polygon, exteriorCoordinates: Array[Coordinate], factory: GeometryFactory, densifyParameter: Option[Double], tolerance: Double):
     Array[LineString] /*(Array[LineString], Array[LineString], Array[Coordinate])*/ = {
+    val start = System.currentTimeMillis()
     // densify the coordinates for the edges of the voronoi diagram to be smoother (better approximation)
     val densifiedGeom = if (densifyParameter.isDefined) Densifier.densify(geom, densifyParameter.get) else geom
     // build a voronoi diagram
@@ -30,17 +32,45 @@ object CenterLinesBuilder {
     vdb.setTolerance(tolerance)
     vdb.setSites(densifiedGeom)
     val envelope = geom.getEnvelopeInternal
-    envelope.expandBy(100)
-    vdb.setClipEnvelope(envelope)
+//    envelope.expandBy(100)
+//    vdb.setClipEnvelope(envelope)
     val diagram = vdb.getSubdivision.getVoronoiDiagram(factory).asInstanceOf[GeometryCollection]
+    val end1 = System.currentTimeMillis()
+//    println(s"\t${end1-start} for diagram building")
     // extract the contours of the voronoi cells and keep only those inside the current feature
-    val lines = (0 until diagram.getNumGeometries).flatMap { i =>
+    val lines1 = (0 until diagram.getNumGeometries).flatMap { i =>
       val coordinates = diagram.getGeometryN(i).asInstanceOf[Polygon].getExteriorRing.getCoordinates
-      (0 until coordinates.size - 1).map { j => factory.createLineString(Array(coordinates(j), coordinates(j + 1)).sorted) }
-    }.toSet.filter(geom.contains).toArray
-    // create lines from the outgoint coordinates to the closest coordinate in the voronoi lines
-    val extLines = exteriorCoordinates.map(c => factory.createLineString(Array(c, lines.map(l => (l, l.getCoordinates.map(lc => (lc, lc.distance(c))).minBy(_._2))).minBy(_._2._2)._2._1)))
-    val allLines = lines ++ extLines
+      for (j <- 0 until coordinates.size - 1 if envelope.contains(coordinates(j)) && envelope.contains(coordinates(j+1)))
+        yield factory.createLineString(Array(coordinates(j), coordinates(j + 1)).sorted)
+    }
+    val end2 = System.currentTimeMillis()
+//    println(s"\t${end2-end1} for lines building (${lines1.size})")
+    val lines2 = lines1.distinct
+    val end3 = System.currentTimeMillis()
+//    println(s"\t${end3-end2} for lines distinct (${lines2.size})")
+    // using a point in area locator to filter the segment with both endpoints inside the polygon
+    val index = new IndexedPointInAreaLocator(geom)
+    val lines = lines2.filter(l=>index.locate(l.getCoordinateN(0)) == Location.INTERIOR && index.locate(l.getCoordinateN(1)) == Location.INTERIOR).toArray
+    val end4 = System.currentTimeMillis()
+//    println(s"\t${end4-end3} for lines filtering (${lines.size})")
+    // check for points on multiple rings
+    val coordsArray = ((0 until geom.getNumInteriorRing).map(i=>geom.getInteriorRingN(i)) :+ geom.getExteriorRing).map(_.getCoordinates)
+    val sharedCoordinates = coordsArray.indices.dropRight(1).flatMap(i=>coordsArray.indices.drop(i+1).flatMap(j=>coordsArray(i).filter(coordsArray(j).contains)))
+    // create lines from the outgoing coordinates to the closest coordinate in the voronoi lines
+    def getClosestCoordinate(c:Coordinate, lines:Array[LineString]) = {
+      lines.map(l => (l, l.getCoordinates.map(lc => (lc, lc.distance(c))).minBy(_._2))).minBy(_._2._2)._2._1
+    }
+    def getClosestCoordinates(c:Coordinate, lines:Array[LineString]) = {
+      lines.map(l => (l, l.getCoordinates.map(lc => (lc, lc.distance(c))).minBy(_._2))).sortBy(_._2._2).take(2).map(_._2._1)
+    }
+    val extLines = exteriorCoordinates.map(c => factory.createLineString(Array(c, getClosestCoordinate(c,lines))))
+    val extLines2 = sharedCoordinates.flatMap(c => getClosestCoordinates(c,lines).map(lc=>factory.createLineString(Array(c, lc))))
+    val allLines = lines ++ extLines ++ extLines2
+    val res = allLines.distinct.map(_.asInstanceOf[LineString])
+    val end5 = System.currentTimeMillis()
+//    println(s"\t${end5-end4} for the rest")
+    res
+    /*
     // build a simple undirected graph to hold all the lines
     case class Edge(line: LineString) extends DefaultEdge {
       def getSourceVertex: Coordinate = getSource.asInstanceOf[Coordinate]
@@ -81,13 +111,16 @@ object CenterLinesBuilder {
       }
     }
     // remove simple vertices
-    mergeEdges()
+//    mergeEdges()
     // remove the dangling edges (not connected to anything
-    removeDangling(true, None, exteriorCoordinates ++ graph.vertexSet().asScala.filter(v => graph.edgesOf(v).size() > 2))
+//    removeDangling(true, None, exteriorCoordinates ++ graph.vertexSet().asScala.filter(v => graph.edgesOf(v).size() > 2))
+    val endGraph = System.currentTimeMillis()
+    println(s"\t${endGraph-end} for graph building")
     // remove simple vertices again
     //mergeEdges()
 //    (graph.edgeSet().asScala.map(_.line).toArray, allLines.map(_.asInstanceOf[LineString]), geom.getCoordinates)
     graph.edgeSet().asScala.map(_.line).toArray
+     */
   }
 
   def getSharedCoordinates(p1: Array[Polygon], p2: Array[Polygon]) = {
@@ -108,6 +141,7 @@ object CenterLinesBuilder {
     val (minY, maxY) = (contour.getCoordinates.map(_.y).min, contour.getCoordinates.map(_.y).max)
     def onContour(c: Coordinate) = (c.x == minX) || (c.x == maxX) || (c.y == minY) || (c.y == maxY)
     def getCoordinatesOnContour(array: Array[Coordinate]) = {
+      val start = System.currentTimeMillis()
       // must be connected to the contour so compute the outgoing coord
       //for each segment, determine if on the contour
       val belongToContour = array.zipWithIndex.map{case (c0, i) =>
@@ -126,12 +160,18 @@ object CenterLinesBuilder {
           if (acc._2.isEmpty) acc else (acc._1 :+ acc._2, Array())
       }
       // create the middle point for each group of segment
-      (if (acc._2.nonEmpty) acc._1 :+ acc._2 else acc._1).map(l=>factory.createLineString(l.flatMap(x=>Array(x._2, x._3)).distinct)).map(l=>new LengthIndexedLine(l).extractPoint(l.getLength / 2))
+      val res = (if (acc._2.nonEmpty) acc._1 :+ acc._2 else acc._1).map(l=>factory.createLineString(l.flatMap(x=>Array(x._2, x._3)).distinct)).map(l=>new LengthIndexedLine(l).extractPoint(l.getLength / 2))
+      val end = System.currentTimeMillis()
+      println(s"\t${end-start} for getCoordinatesOnContour")
+      res
     }
     def getLine(geom: Polygon, array: Array[Coordinate], sharedCoordinates: Array[Coordinate]):
       Array[LineString]/*(Array[LineString], Array[LineString], Array[Coordinate])*/ = {
+      val start = System.currentTimeMillis()
       // check if part of the coordinates are on the contour of the dataset
       val coordinatesOnContour = array.filter(onContour)
+      val end = System.currentTimeMillis()
+//      println(s"\t${end-start} for filtering")
       // Get the exterior coordinates for the cell id with coordinates array
       val exteriorCoordinates = if (coordinatesOnContour.isEmpty) {
         sharedCoordinates
@@ -157,6 +197,7 @@ object CenterLinesBuilder {
 //    val snappedExteriorRing = new GeometrySnapper(exteriorRing).snapTo(factory.createMultiPointFromCoords(exteriorConnectedCoordinates.toArray), tolerance)
     // merge the edges that can be merged
     val lmg = new LineMerger()
+    val start = System.currentTimeMillis()
     lines.flatten.foreach(lmg.add)
 //    val cc = snappedExteriorRing.getCoordinates
 //    (0 until cc.size - 1).foreach { i => lmg.add(factory.createLineString(Array(cc(i), cc(i + 1)))) }
@@ -165,6 +206,8 @@ object CenterLinesBuilder {
       map(_.asInstanceOf[LineString]).
       map(l => if (simplifyTolerance.isDefined) DouglasPeuckerSimplifier.simplify(l, simplifyTolerance.get) else l).
       map(_.asInstanceOf[LineString])
+    val end = System.currentTimeMillis()
+//    println(s"\t${end-start} for line merging")
     simplified.toArray//(simplified.toArray, segments.flatten, points.flatten)
   }
   def getPolygonsFromLines(lines: Array[LineString], factory: GeometryFactory) = {
